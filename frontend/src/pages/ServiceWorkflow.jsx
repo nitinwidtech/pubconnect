@@ -7,7 +7,7 @@ import { Card, Money, inputCls } from "@/components/ui-bits";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import { Search, Banknote, HandCoins, Loader2, CheckCircle2, Wallet, Gift, User } from "lucide-react";
+import { Search, Banknote, HandCoins, Loader2, CheckCircle2, Wallet, Gift, User, QrCode } from "lucide-react";
 import { toast } from "sonner";
 
 export default function ServiceWorkflow() {
@@ -15,6 +15,8 @@ export default function ServiceWorkflow() {
   const [search, setSearch] = useState("");
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState(null);
+  const [tokenInput, setTokenInput] = useState("");
+  const [resolvingToken, setResolvingToken] = useState(false);
   const [offers, setOffers] = useState([]);
   const [mode, setMode] = useState("deposit"); // deposit | redeem
   const [amount, setAmount] = useState("");
@@ -29,6 +31,19 @@ export default function ServiceWorkflow() {
     setResults([]);
     setSearch("");
   }, []);
+
+  const resolveToken = async () => {
+    if (!tokenInput.trim()) return;
+    setResolvingToken(true);
+    try {
+      const { data } = await api.post("/action-tokens/resolve", { token: tokenInput.trim() });
+      toast.success(`Verified: ${data.full_name}`);
+      setTokenInput("");
+      await loadCustomer(data.customer_id);
+    } catch (e) {
+      toast.error(apiError(e.response?.data?.detail));
+    } finally { setResolvingToken(false); }
+  };
 
   useEffect(() => {
     api.get("/offers").then((r) => setOffers(r.data.filter((o) => o.is_active))).catch(() => {});
@@ -97,6 +112,24 @@ export default function ServiceWorkflow() {
                 <Money pence={c.balance.total_minor} />
               </button>
             ))}
+          </div>
+
+          <div className="mt-5 pt-5 border-t border-border">
+            <div className="text-sm font-medium mb-1 flex items-center gap-2"><QrCode className="h-4 w-4 text-primary" /> Or scan / enter an action token</div>
+            <p className="text-xs text-muted-foreground mb-3">Short-lived, single-use. Resolves to a customer without exposing any wallet or profile data.</p>
+            <div className="flex gap-2">
+              <input
+                data-testid="service-token-input"
+                className={`${inputCls} mono`}
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && resolveToken()}
+                placeholder="Paste action token…"
+              />
+              <button data-testid="service-token-resolve-btn" onClick={resolveToken} disabled={resolvingToken || !tokenInput.trim()} className="h-11 px-4 rounded-lg bg-secondary border border-border text-sm font-semibold flex items-center gap-2 hover:bg-secondary/70 transition-colors disabled:opacity-50 shrink-0">
+                {resolvingToken ? <Loader2 className="h-4 w-4 animate-spin" /> : <QrCode className="h-4 w-4" />} Resolve
+              </button>
+            </div>
           </div>
         </Card>
       ) : success ? (

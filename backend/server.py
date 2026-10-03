@@ -5,7 +5,7 @@ import os
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query, Response
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
@@ -16,6 +16,10 @@ import logging
 import bcrypt
 import jwt
 import uuid
+import hashlib
+import secrets
+import csv
+import io
 
 # ---------------------------------------------------------------------------
 # DB & app setup
@@ -111,6 +115,14 @@ def ser(doc: dict) -> dict:
 
 def ref_code(prefix: str = "TXN") -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8].upper()}"
+
+
+def hash_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+# Short-lived action token lifetime (minutes)
+ACTION_TOKEN_TTL_MINUTES = 5
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +278,15 @@ class PubUpdate(BaseModel):
     address: Optional[str] = None
     receipt_header: Optional[str] = None
     status: Optional[str] = None
+
+
+class ActionTokenIn(BaseModel):
+    customer_id: str
+    action_type: Literal["REDEEM"] = "REDEEM"
+
+
+class ActionTokenResolveIn(BaseModel):
+    token: str
 
 
 # ---------------------------------------------------------------------------
@@ -644,6 +665,53 @@ async def list_transactions(user: dict = Depends(require("view_transactions")),
     return out
 
 
+@api.get("/transactions/export")
+async def export_transactions(user: dict = Depends(require("view_transactions")),
+                              customer_id: Optional[str] = None,
+                              type: Optional[str] = None,
+                              start: Optional[str] = None,
+                              end: Optional[str] = None):
+    q = {"pub_id": user["pub_id"]}
+    if customer_id:
+        q["customer_id"] = customer_id
+    if type:
+        q["transaction_type"] = type
+    if start:
+        q.setdefault("created_at", {})["$gte"] = start
+    if end:
+        q.setdefault("created_at", {})["$lte"] = end
+    txns = await db.ledger_transactions.find(q).sort("created_at", -1).to_list(5000)
+    cust_cache, user_cache = {}, {}
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Reference", "Type", "Customer", "Amount_GBP", "Balance_Effect_GBP",
+                "Reason", "Performed_By", "Date"])
+    for t in txns:
+        cid = t["customer_id"]
+        if cid not in cust_cache:
+            c = await db.customers.find_one({"_id": oid(cid)})
+            cust_cache[cid] = c["full_name"] if c else "—"
+        pid = t.get("performed_by_user_id")
+        if pid and pid not in user_cache:
+            p = await db.admin_users.find_one({"_id": oid(pid)})
+            user_cache[pid] = p["full_name"] if p else "—"
+        w.writerow([
+            t.get("reference_code", ""),
+            t.get("transaction_type", ""),
+            cust_cache[cid],
+            f"{t.get('amount_minor', 0) / 100:.2f}",
+            f"{t.get('balance_effect_minor', 0) / 100:.2f}",
+            t.get("reason") or "",
+            user_cache.get(pid, "—"),
+            t.get("created_at", ""),
+        ])
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=pubconnect_transactions.csv"},
+    )
+
+
 @api.get("/transactions/{txn_id}")
 async def get_transaction(txn_id: str, user: dict = Depends(require("view_transactions"))):
     t = await db.ledger_transactions.find_one({"_id": oid(txn_id), "pub_id": user["pub_id"]})
@@ -660,6 +728,53 @@ async def get_transaction(txn_id: str, user: dict = Depends(require("view_transa
     children = await db.ledger_transactions.find({"related_transaction_id": txn_id}).to_list(100)
     d["linked_transactions"] = [ser(c) for c in children]
     return d
+
+
+# ---------------------------------------------------------------------------
+# Customer action tokens (short-lived, single-use QR). No sensitive data in QR.
+# ---------------------------------------------------------------------------
+@api.post("/action-tokens")
+async def create_action_token(body: ActionTokenIn, user: dict = Depends(require("redeem"))):
+    c = await db.customers.find_one({"_id": oid(body.customer_id), "pub_id": user["pub_id"]})
+    if not c:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    raw = secrets.token_urlsafe(18)
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=ACTION_TOKEN_TTL_MINUTES)).isoformat()
+    res = await db.customer_action_tokens.insert_one({
+        "pub_id": user["pub_id"],
+        "customer_id": body.customer_id,
+        "token_hash": hash_token(raw),
+        "action_type": body.action_type,
+        "expires_at": expires_at,
+        "used_at": None,
+        "created_at": now_utc(),
+    })
+    await write_audit(user, "action_token", res.inserted_id, "CREATE",
+                      f"Generated {body.action_type} action token for {c['full_name']}")
+    # Only the opaque token is returned / encoded in the QR — no wallet or profile data.
+    return {"id": str(res.inserted_id), "token": raw, "action_type": body.action_type,
+            "expires_at": expires_at, "ttl_minutes": ACTION_TOKEN_TTL_MINUTES}
+
+
+@api.post("/action-tokens/resolve")
+async def resolve_action_token(body: ActionTokenResolveIn, user: dict = Depends(require("customer_view"))):
+    th = hash_token(body.token.strip())
+    # pub_id in the query enforces tenant isolation — tokens from other pubs never match.
+    tok = await db.customer_action_tokens.find_one({"token_hash": th, "pub_id": user["pub_id"]})
+    if not tok:
+        raise HTTPException(status_code=404, detail="Invalid or unknown token")
+    if tok.get("used_at"):
+        raise HTTPException(status_code=400, detail="This token has already been used")
+    if now_utc() > tok["expires_at"]:
+        raise HTTPException(status_code=400, detail="This token has expired")
+    await db.customer_action_tokens.update_one({"_id": tok["_id"]}, {"$set": {"used_at": now_utc()}})
+    c = await db.customers.find_one({"_id": oid(tok["customer_id"]), "pub_id": user["pub_id"]})
+    if not c:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    await write_audit(user, "action_token", tok["_id"], "RESOLVE",
+                      f"Resolved {tok['action_type']} token for {c['full_name']}")
+    return {"customer_id": str(c["_id"]), "full_name": c["full_name"],
+            "customer_code": c["customer_code"], "action_type": tok["action_type"]}
 
 
 # ---------------------------------------------------------------------------

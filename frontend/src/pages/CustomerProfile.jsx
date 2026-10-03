@@ -7,7 +7,8 @@ import { useAuth } from "@/context/AuthContext";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Wallet, Gift, Banknote, Loader2, Settings2, Zap } from "lucide-react";
+import { ArrowLeft, Wallet, Gift, Banknote, Loader2, Settings2, Zap, QrCode } from "lucide-react";
+import { QRCodeCanvas } from "qrcode.react";
 import { toast } from "sonner";
 
 export default function CustomerProfile() {
@@ -15,6 +16,8 @@ export default function CustomerProfile() {
   const navigate = useNavigate();
   const [c, setC] = useState(null);
   const [adjustOpen, setAdjustOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+  const [token, setToken] = useState(null);
   const { can } = useAuth();
 
   const load = useCallback(async () => {
@@ -23,6 +26,16 @@ export default function CustomerProfile() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  const generateToken = async () => {
+    try {
+      const { data } = await api.post("/action-tokens", { customer_id: id, action_type: "REDEEM" });
+      setToken(data);
+      setQrOpen(true);
+    } catch (e) {
+      toast.error(apiError(e.response?.data?.detail));
+    }
+  };
 
   if (!c) return <div className="text-muted-foreground">Loading…</div>;
 
@@ -41,6 +54,11 @@ export default function CustomerProfile() {
           <button data-testid="profile-service-btn" onClick={() => navigate(`/service?customer=${c.id}`)} className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-semibold hover:bg-[hsl(39_80%_62%)] transition-colors">
             <Zap className="h-4 w-4" /> Deposit / Redeem
           </button>
+          {can("redeem") && (
+            <button data-testid="generate-qr-btn" onClick={generateToken} className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-border text-sm font-semibold hover:bg-secondary transition-colors">
+              <QrCode className="h-4 w-4" /> Redeem QR
+            </button>
+          )}
           {can("manual_adjustment") && (
             <button data-testid="open-adjustment-btn" onClick={() => setAdjustOpen(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-border text-sm font-semibold hover:bg-secondary transition-colors">
               <Settings2 className="h-4 w-4" /> Manual Adjust
@@ -98,6 +116,29 @@ export default function CustomerProfile() {
       </Card>
 
       <AdjustmentDialog open={adjustOpen} setOpen={setAdjustOpen} customerId={c.id} onDone={load} />
+
+      <Dialog open={qrOpen} onOpenChange={setQrOpen}>
+        <DialogContent className="bg-card border-border" data-testid="qr-dialog">
+          <DialogHeader><DialogTitle className="font-heading flex items-center gap-2"><QrCode className="h-5 w-5 text-primary" /> Redeem Action Token</DialogTitle></DialogHeader>
+          <div className="flex flex-col items-center py-2">
+            {token && (
+              <div className="bg-white p-4 rounded-xl" data-testid="qr-canvas">
+                <QRCodeCanvas value={token.token} size={192} level="M" includeMargin={false} />
+              </div>
+            )}
+            <p className="text-sm text-muted-foreground mt-4 text-center">
+              Single-use · expires in {token?.ttl_minutes} minutes. The QR contains only an opaque token — no wallet balance or personal data.
+            </p>
+            <div className="mt-3 w-full">
+              <div className="text-xs text-muted-foreground mb-1">Token (fallback entry)</div>
+              <div data-testid="qr-token-text" className="mono text-xs bg-secondary rounded-lg px-3 py-2 break-all">{token?.token}</div>
+            </div>
+          </div>
+          <DialogFooter>
+            <button data-testid="qr-close-btn" onClick={() => setQrOpen(false)} className="w-full h-11 rounded-lg bg-primary text-primary-foreground font-semibold text-sm hover:bg-[hsl(39_80%_62%)] transition-colors">Done</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

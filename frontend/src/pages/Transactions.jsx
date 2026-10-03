@@ -10,7 +10,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ReceiptText, Undo2, RotateCcw, Loader2, Link2 } from "lucide-react";
+import { ReceiptText, Undo2, RotateCcw, Loader2, Link2, Download } from "lucide-react";
 import { toast } from "sonner";
 
 const TYPES = ["CASH_DEPOSIT", "PROMOTIONAL_BONUS", "PURCHASE", "REFUND", "REVERSAL", "MANUAL_ADJUSTMENT"];
@@ -18,21 +18,46 @@ const TYPES = ["CASH_DEPOSIT", "PROMOTIONAL_BONUS", "PURCHASE", "REFUND", "REVER
 export default function Transactions() {
   const [txns, setTxns] = useState([]);
   const [type, setType] = useState("ALL");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const { can } = useAuth();
+
+  const buildParams = useCallback(() => {
+    const params = {};
+    if (type !== "ALL") params.type = type;
+    if (start) params.start = new Date(start + "T00:00:00").toISOString();
+    if (end) params.end = new Date(end + "T23:59:59").toISOString();
+    return params;
+  }, [type, start, end]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = {};
-      if (type !== "ALL") params.type = type;
-      const { data } = await api.get("/transactions", { params });
+      const { data } = await api.get("/transactions", { params: buildParams() });
       setTxns(data);
     } finally { setLoading(false); }
-  }, [type]);
+  }, [buildParams]);
 
   useEffect(() => { load(); }, [load]);
+
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const res = await api.get("/transactions/export", { params: buildParams(), responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "pubconnect_transactions.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Export downloaded");
+    } catch (e) {
+      toast.error(apiError(e.response?.data?.detail) || "Export failed");
+    } finally { setExporting(false); }
+  };
 
   const openDetail = async (id) => {
     const { data } = await api.get(`/transactions/${id}`);
@@ -43,14 +68,33 @@ export default function Transactions() {
     <div>
       <PageHeader title="Transactions" subtitle="Append-only ledger · nothing is ever edited or deleted" />
 
-      <div className="mb-5 flex gap-3 items-center">
-        <Select value={type} onValueChange={setType}>
-          <SelectTrigger data-testid="txn-type-filter" className="w-56 bg-background border-input"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All types</SelectItem>
-            {TYPES.map((t) => <SelectItem key={t} value={t}>{TXN_META[t].label}</SelectItem>)}
-          </SelectContent>
-        </Select>
+      <div className="mb-5 flex gap-3 items-end flex-wrap">
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1.5">Type</label>
+          <Select value={type} onValueChange={setType}>
+            <SelectTrigger data-testid="txn-type-filter" className="w-48 bg-background border-input"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All types</SelectItem>
+              {TYPES.map((t) => <SelectItem key={t} value={t}>{TXN_META[t].label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1.5">From</label>
+          <input data-testid="txn-start-filter" type="date" value={start} onChange={(e) => setStart(e.target.value)} className={`${inputCls} w-40`} />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1.5">To</label>
+          <input data-testid="txn-end-filter" type="date" value={end} onChange={(e) => setEnd(e.target.value)} className={`${inputCls} w-40`} />
+        </div>
+        {(start || end) && (
+          <button data-testid="txn-clear-dates" onClick={() => { setStart(""); setEnd(""); }} className="h-11 px-3 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">Clear dates</button>
+        )}
+        <div className="ml-auto">
+          <button data-testid="txn-export-btn" onClick={exportCsv} disabled={exporting} className="h-11 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold flex items-center gap-2 hover:bg-[hsl(39_80%_62%)] transition-colors disabled:opacity-60">
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Export CSV
+          </button>
+        </div>
       </div>
 
       <Card className="overflow-hidden">
