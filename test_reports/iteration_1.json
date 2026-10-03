@@ -1,0 +1,34 @@
+{
+  "summary": "PubConnect Phase 1 full backend + frontend regression. Created pytest suite /app/backend/tests/test_pubconnect.py with 36 tests covering auth, dashboard, customers (incl. duplicate mobile 409), ledger safety (deposit/redeem/overdraft rejection, refund rules + cap, reversal rules + double-reversal block, adjustment with negative-balance guard & exceptional flag), offer matching + usage caps + times_redeemed increment, offers CRUD + toggle, staff rules (manager cannot create owner, cannot deactivate self), audit ACCESS_DENIED, permissions 403 matrix for OWNER/MANAGER/BAR_STAFF, pub update. ALL 36 TESTS PASS. Frontend verified via Playwright: OWNER login works and sees full sidebar; BAR_STAFF sees only Dashboard/Fast Service/Customers/Transactions and is redirected away from /offers; Fast Service workflow deposit of £20 to Harry Collins auto-matched Happy Hour offer and showed +£1 bonus in dashboard, confirmation modal and success screen worked; transaction detail drawer opens with linked original. No blocking issues found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Customers table", "issues": ["Customer code appears concatenated to the name text in DOM (TEST_LimCC6F637) because the small code line sits below the name without a semantic separator; copy-paste UX minor only."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_pubconnect.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 867 lines - consider splitting by resource (auth/customers/ledger/offers/staff/pub/audit) for maintainability.",
+    "CORS allow_credentials=True with allow_origins='*' fallback is invalid per spec; set CORS_ORIGINS explicitly in production.",
+    "seed_demo is called on every startup; make sure it is idempotent (looks ok but worth confirming for OWNER password updates per playbook).",
+    "wallet balance derivation uses full aggregation on every call - acceptable for Phase 1 but could be cached/materialized once volumes grow.",
+    "Deposit matching: when offer_id supplied but times_redeemed cap or per-customer cap is reached, error says 'expired, limit reached, or amount mismatch' - good; just verify UI surfaces it."
+  ],
+  "updated_files": [
+    "/app/backend/tests/__init__.py",
+    "/app/backend/tests/test_pubconnect.py"
+  ],
+  "success_rate": {"backend": "100% (36/36)", "frontend": "100% of flows exercised"},
+  "test_credentials": "OWNER nitinwidtech@gmail.com / PubConnect2026! ; MANAGER manager@crownanchor.demo / Manager2026! ; BAR_STAFF barstaff@crownanchor.demo / BarStaff2026!",
+  "seed_data_creation": "Tests created TEST_-prefixed customers/offers/staff via API. Not cleaned up - fine for next regression.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend regression lives at /app/backend/tests/test_pubconnect.py (pytest, parallel via xdist already configured in /app/backend/pytest.ini). Base URL read from REACT_APP_BACKEND_URL. All ledger safety rules (append-only, no-negative-balance, refund cap, reverse-only-once) are validated. Backend permission matrix fully validated. For frontend, data-testids on ServiceWorkflow (service-search-input, mode-deposit-btn/mode-redeem-btn, service-amount-input, service-offer-<id>, service-continue-btn, service-confirm-btn, service-success) work as documented. Search in ServiceWorkflow does not match special chars like '+' well (sends raw query string); use plain alpha like 'Harry' for reliable results.",
+  "rca of the issue": "No bugs found."
+}
