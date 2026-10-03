@@ -1047,6 +1047,10 @@ class CustomerTokenIn(BaseModel):
     action_type: Literal["PAY", "REDEEM"] = "PAY"
 
 
+class CustomerTokenStatusIn(BaseModel):
+    token: str
+
+
 async def _single_pub() -> dict:
     """MVP: one pilot pub, resolved via the seeded owner's pub for determinism.
     Compatible with future multi-pub membership (would resolve from the request)."""
@@ -1307,6 +1311,25 @@ async def customer_create_token(body: CustomerTokenIn, cust: dict = Depends(get_
     # QR carries only the opaque token — no balance, name, phone or PII.
     return {"token": raw, "action_type": body.action_type,
             "expires_at": expires_at, "ttl_minutes": ACTION_TOKEN_TTL_MINUTES}
+
+
+@customer_api.post("/action-tokens/status")
+async def customer_token_status(body: CustomerTokenStatusIn, cust: dict = Depends(get_current_customer)):
+    # Self-scoped: the token must belong to THIS customer (IDOR-safe).
+    th = hash_token(body.token.strip())
+    tok = await db.customer_action_tokens.find_one({
+        "token_hash": th, "pub_id": cust["pub_id"], "customer_id": str(cust["_id"]),
+    })
+    if not tok:
+        raise HTTPException(status_code=404, detail="Token not found")
+    if tok.get("used_at"):
+        status = "used"
+    elif now_utc() > tok["expires_at"]:
+        status = "expired"
+    else:
+        status = "active"
+    return {"status": status, "used_at": tok.get("used_at"),
+            "expires_at": tok["expires_at"], "action_type": tok.get("action_type")}
 
 
 @customer_api.get("/notification-preferences")
