@@ -20,6 +20,8 @@ import hashlib
 import secrets
 import csv
 import io
+import time
+from collections import defaultdict
 
 # ---------------------------------------------------------------------------
 # DB & app setup
@@ -80,9 +82,10 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_token(user_id: str) -> str:
+def create_token(subject_id: str, aud: str = "admin") -> str:
     payload = {
-        "sub": user_id,
+        "sub": subject_id,
+        "aud": aud,
         "exp": datetime.now(timezone.utc) + timedelta(days=7),
         "type": "access",
     }
@@ -138,15 +141,60 @@ async def get_current_user(request: Request) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM], options={"verify_aud": False})
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
+    # Customer tokens must never authenticate against admin endpoints.
+    if payload.get("aud") == "customer":
+        raise HTTPException(status_code=401, detail="Invalid token for this resource")
     user = await db.admin_users.find_one({"_id": oid(payload["sub"])})
     if not user or not user.get("is_active", True):
         raise HTTPException(status_code=401, detail="User not found or inactive")
     return user
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting (in-memory sliding window; per-process, resets on restart)
+# ---------------------------------------------------------------------------
+_rate_buckets: dict = defaultdict(list)
+
+
+def rate_limit(key: str, max_calls: int, window_seconds: int):
+    now = time.time()
+    arr = _rate_buckets[key]
+    cutoff = now - window_seconds
+    while arr and arr[0] < cutoff:
+        arr.pop(0)
+    if len(arr) >= max_calls:
+        raise HTTPException(status_code=429, detail="Too many attempts. Please try again shortly.")
+    arr.append(now)
+
+
+# ---------------------------------------------------------------------------
+# Customer auth dependency (aud="customer" only)
+# ---------------------------------------------------------------------------
+async def get_current_customer(request: Request) -> dict:
+    token = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM], options={"verify_aud": False})
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    # Admin tokens must never authenticate against customer endpoints.
+    if payload.get("aud") != "customer":
+        raise HTTPException(status_code=401, detail="Invalid token for this resource")
+    cust = await db.customers.find_one({"_id": oid(payload["sub"])})
+    if not cust or not cust.get("is_registered") or cust.get("status") == "inactive":
+        raise HTTPException(status_code=401, detail="Customer not found or inactive")
+    return cust
 
 
 def require(action: str):
@@ -745,6 +793,7 @@ async def create_action_token(body: ActionTokenIn, user: dict = Depends(require(
         "customer_id": body.customer_id,
         "token_hash": hash_token(raw),
         "action_type": body.action_type,
+        "generated_by": "staff",
         "expires_at": expires_at,
         "used_at": None,
         "created_at": now_utc(),
@@ -956,9 +1005,330 @@ async def update_pub(body: PubUpdate, user: dict = Depends(require("manage_pub")
 
 
 # ---------------------------------------------------------------------------
+# PHASE 2.0 — Customer API (mobile backend). Self-scoped by customer_id + pub_id.
+# Reuses wallet_balance(), ledger_transactions, offers and action-token helpers.
+# No second wallet; no duplicated ledger logic.
+# ---------------------------------------------------------------------------
+customer_api = APIRouter(prefix="/api/customer")
+
+DEFAULT_NOTIF_PREFS = {"offers": True, "transactional": True, "email": True, "push": False}
+
+
+class CustomerRegisterIn(BaseModel):
+    full_name: str
+    password: str
+    email: Optional[EmailStr] = None
+    mobile_number: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    marketing_consent: bool = False
+
+
+class CustomerLoginIn(BaseModel):
+    identifier: str  # email OR mobile number
+    password: str
+
+
+class CustomerProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    date_of_birth: Optional[str] = None
+    marketing_consent: Optional[bool] = None
+
+
+class NotifPrefsUpdate(BaseModel):
+    offers: Optional[bool] = None
+    transactional: Optional[bool] = None
+    email: Optional[bool] = None
+    push: Optional[bool] = None
+
+
+class CustomerTokenIn(BaseModel):
+    action_type: Literal["PAY", "REDEEM"] = "PAY"
+
+
+async def _single_pub() -> dict:
+    """MVP: one pilot pub, resolved via the seeded owner's pub for determinism.
+    Compatible with future multi-pub membership (would resolve from the request)."""
+    owner_email = (os.environ.get("ADMIN_EMAIL", "") or "").lower().strip()
+    if owner_email:
+        owner = await db.admin_users.find_one({"email": owner_email, "role": "OWNER"})
+        if owner:
+            pub = await db.pubs.find_one({"_id": oid(owner["pub_id"])})
+            if pub:
+                return pub
+    pub = await db.pubs.find_one({"status": "active"}) or await db.pubs.find_one({})
+    if not pub:
+        raise HTTPException(status_code=503, detail="No pub configured")
+    return pub
+
+
+def _customer_public(c: dict) -> dict:
+    """ser() already strips password_hash; also drop auth-internal fields."""
+    d = ser(c)
+    d.pop("password_hash", None)
+    return d
+
+
+async def _active_offers(pub_id: str) -> list:
+    now_iso = now_utc()
+    offers = await db.offers.find({"pub_id": pub_id, "is_active": True}).sort("created_at", -1).to_list(100)
+    out = []
+    for o in offers:
+        if o.get("start_date") and now_iso < o["start_date"]:
+            continue
+        if o.get("end_date") and now_iso > o["end_date"]:
+            continue
+        out.append(ser(o))
+    return out
+
+
+@customer_api.post("/auth/register")
+async def customer_register(body: CustomerRegisterIn, request: Request):
+    rate_limit(f"creg:{request.client.host if request.client else 'x'}", max_calls=8, window_seconds=60)
+    if not body.email and not body.mobile_number:
+        raise HTTPException(status_code=400, detail="Provide an email or mobile number")
+    pub = await _single_pub()
+    pub_id = str(pub["_id"])
+    email = body.email.lower().strip() if body.email else None
+    mobile = body.mobile_number.strip() if body.mobile_number else None
+
+    ors = []
+    if email:
+        ors.append({"email": email})
+    if mobile:
+        ors.append({"mobile_number": mobile})
+    existing = await db.customers.find_one({"pub_id": pub_id, "$or": ors}) if ors else None
+
+    if existing and existing.get("is_registered"):
+        # Generic message — no account enumeration.
+        raise HTTPException(status_code=409, detail="Unable to register with the provided details")
+
+    prefs = {**DEFAULT_NOTIF_PREFS}
+    auth_fields = {
+        "password_hash": hash_password(body.password),
+        "auth_identifier": email or mobile,
+        "is_registered": True,
+        "registered_at": now_utc(),
+        "notification_preferences": prefs,
+        "marketing_consent": body.marketing_consent,
+        "updated_at": now_utc(),
+    }
+
+    if existing:
+        # Claim an existing (Phase 1 walk-in) customer record — keeps wallet continuity.
+        set_fields = {**auth_fields}
+        if email:
+            set_fields["email"] = email
+        if body.full_name:
+            set_fields["full_name"] = body.full_name
+        if body.date_of_birth:
+            set_fields["date_of_birth"] = body.date_of_birth
+        await db.customers.update_one({"_id": existing["_id"]}, {"$set": set_fields})
+        cust_id = existing["_id"]
+    else:
+        code = f"C{uuid.uuid4().hex[:6].upper()}"
+        doc = {
+            "pub_id": pub_id,
+            "customer_code": code,
+            "full_name": body.full_name,
+            "mobile_number": mobile,
+            "email": email,
+            "date_of_birth": body.date_of_birth,
+            "status": "active",
+            "created_at": now_utc(),
+            **auth_fields,
+        }
+        try:
+            res = await db.customers.insert_one(doc)
+        except Exception:
+            raise HTTPException(status_code=409, detail="Unable to register with the provided details")
+        cust_id = res.inserted_id
+
+    # Auto-create wallet if missing (never a second wallet).
+    wallet = await db.wallets.find_one({"customer_id": str(cust_id)})
+    if not wallet:
+        await db.wallets.insert_one({
+            "pub_id": pub_id, "customer_id": str(cust_id), "currency": "GBP",
+            "status": "active", "created_at": now_utc(), "updated_at": now_utc(),
+        })
+
+    cust = await db.customers.find_one({"_id": cust_id})
+    token = create_token(str(cust_id), aud="customer")
+    return {"token": token, "customer": _customer_public(cust), "pub": ser(pub)}
+
+
+@customer_api.post("/auth/login")
+async def customer_login(body: CustomerLoginIn, request: Request):
+    rate_limit(f"clog:{request.client.host if request.client else 'x'}", max_calls=10, window_seconds=60)
+    ident = body.identifier.lower().strip()
+    pub = await _single_pub()
+    pub_id = str(pub["_id"])
+    cust = await db.customers.find_one({
+        "pub_id": pub_id,
+        "is_registered": True,
+        "$or": [{"email": ident}, {"mobile_number": body.identifier.strip()}, {"auth_identifier": ident}],
+    })
+    if not cust or not cust.get("password_hash") or not verify_password(body.password, cust["password_hash"]):
+        # Generic message — no account enumeration.
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if cust.get("status") == "inactive":
+        raise HTTPException(status_code=403, detail="Account is deactivated")
+    await db.customers.update_one({"_id": cust["_id"]}, {"$set": {"last_login_at": now_utc()}})
+    token = create_token(str(cust["_id"]), aud="customer")
+    return {"token": token, "customer": _customer_public(cust), "pub": ser(pub)}
+
+
+@customer_api.get("/auth/me")
+async def customer_me(cust: dict = Depends(get_current_customer)):
+    pub = await db.pubs.find_one({"_id": oid(cust["pub_id"])})
+    return {"customer": _customer_public(cust), "pub": ser(pub)}
+
+
+@customer_api.patch("/profile")
+async def customer_update_profile(body: CustomerProfileUpdate, cust: dict = Depends(get_current_customer)):
+    updates = {}
+    if body.full_name is not None:
+        updates["full_name"] = body.full_name
+    if body.date_of_birth is not None:
+        updates["date_of_birth"] = body.date_of_birth
+    if body.marketing_consent is not None:
+        updates["marketing_consent"] = body.marketing_consent
+    if body.email is not None:
+        new_email = body.email.lower().strip()
+        clash = await db.customers.find_one({
+            "pub_id": cust["pub_id"], "email": new_email, "_id": {"$ne": cust["_id"]},
+        })
+        if clash:
+            raise HTTPException(status_code=409, detail="That email is already in use")
+        updates["email"] = new_email
+    if not updates:
+        raise HTTPException(status_code=400, detail="No changes provided")
+    updates["updated_at"] = now_utc()
+    await db.customers.update_one({"_id": cust["_id"]}, {"$set": updates})
+    updated = await db.customers.find_one({"_id": cust["_id"]})
+    return _customer_public(updated)
+
+
+async def _my_wallet(cust: dict) -> dict:
+    wallet = await db.wallets.find_one({"customer_id": str(cust["_id"])})
+    if not wallet:
+        res = await db.wallets.insert_one({
+            "pub_id": cust["pub_id"], "customer_id": str(cust["_id"]), "currency": "GBP",
+            "status": "active", "created_at": now_utc(), "updated_at": now_utc(),
+        })
+        wallet = await db.wallets.find_one({"_id": res.inserted_id})
+    return wallet
+
+
+@customer_api.get("/home")
+async def customer_home(cust: dict = Depends(get_current_customer)):
+    wallet = await _my_wallet(cust)
+    bal = await wallet_balance(str(wallet["_id"]))
+    offers = await _active_offers(cust["pub_id"])
+    recent = await db.ledger_transactions.find(
+        {"customer_id": str(cust["_id"]), "pub_id": cust["pub_id"]}
+    ).sort("created_at", -1).limit(8).to_list(8)
+    return {
+        "balance": bal,
+        "offers": offers,
+        "recent_transactions": [ser(t) for t in recent],
+        "upcoming_events": [],  # placeholder — advanced events deferred
+    }
+
+
+@customer_api.get("/wallet")
+async def customer_wallet(cust: dict = Depends(get_current_customer)):
+    wallet = await _my_wallet(cust)
+    bal = await wallet_balance(str(wallet["_id"]))
+    txns = await db.ledger_transactions.find(
+        {"customer_id": str(cust["_id"]), "pub_id": cust["pub_id"]}
+    ).sort("created_at", -1).to_list(500)
+    grouped = {"cash_deposits": [], "promotional_bonuses": [], "purchases": [],
+               "refunds": [], "reversals": [], "manual_adjustments": []}
+    key_map = {
+        "CASH_DEPOSIT": "cash_deposits", "PROMOTIONAL_BONUS": "promotional_bonuses",
+        "PURCHASE": "purchases", "REFUND": "refunds", "REVERSAL": "reversals",
+        "MANUAL_ADJUSTMENT": "manual_adjustments",
+    }
+    for t in txns:
+        k = key_map.get(t["transaction_type"])
+        if k:
+            grouped[k].append(ser(t))
+    return {"balance": bal, **grouped}
+
+
+@customer_api.get("/transactions")
+async def customer_transactions(cust: dict = Depends(get_current_customer), type: Optional[str] = None):
+    q = {"customer_id": str(cust["_id"]), "pub_id": cust["pub_id"]}
+    if type:
+        q["transaction_type"] = type
+    txns = await db.ledger_transactions.find(q).sort("created_at", -1).to_list(1000)
+    return [ser(t) for t in txns]
+
+
+@customer_api.get("/transactions/{txn_id}")
+async def customer_transaction_detail(txn_id: str, cust: dict = Depends(get_current_customer)):
+    t = await db.ledger_transactions.find_one({
+        "_id": oid(txn_id), "customer_id": str(cust["_id"]), "pub_id": cust["pub_id"],
+    })
+    if not t:
+        # 404 (not 403) to avoid revealing existence of others' transactions.
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    d = ser(t)
+    if t.get("related_transaction_id"):
+        rel = await db.ledger_transactions.find_one({
+            "_id": oid(t["related_transaction_id"]), "customer_id": str(cust["_id"]),
+        })
+        d["related_transaction"] = ser(rel) if rel else None
+    return d
+
+
+@customer_api.get("/offers")
+async def customer_offers(cust: dict = Depends(get_current_customer)):
+    return await _active_offers(cust["pub_id"])
+
+
+@customer_api.post("/action-tokens")
+async def customer_create_token(body: CustomerTokenIn, cust: dict = Depends(get_current_customer)):
+    rate_limit(f"ctok:{cust['_id']}", max_calls=20, window_seconds=60)
+    raw = secrets.token_urlsafe(18)
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=ACTION_TOKEN_TTL_MINUTES)).isoformat()
+    await db.customer_action_tokens.insert_one({
+        "pub_id": cust["pub_id"],
+        "customer_id": str(cust["_id"]),
+        "token_hash": hash_token(raw),
+        "action_type": body.action_type,
+        "generated_by": "customer",
+        "expires_at": expires_at,
+        "used_at": None,
+        "created_at": now_utc(),
+    })
+    # QR carries only the opaque token — no balance, name, phone or PII.
+    return {"token": raw, "action_type": body.action_type,
+            "expires_at": expires_at, "ttl_minutes": ACTION_TOKEN_TTL_MINUTES}
+
+
+@customer_api.get("/notification-preferences")
+async def customer_get_prefs(cust: dict = Depends(get_current_customer)):
+    return cust.get("notification_preferences") or {**DEFAULT_NOTIF_PREFS}
+
+
+@customer_api.patch("/notification-preferences")
+async def customer_update_prefs(body: NotifPrefsUpdate, cust: dict = Depends(get_current_customer)):
+    prefs = {**DEFAULT_NOTIF_PREFS, **(cust.get("notification_preferences") or {})}
+    for k, v in body.model_dump().items():
+        if v is not None:
+            prefs[k] = v
+    await db.customers.update_one({"_id": cust["_id"]},
+                                  {"$set": {"notification_preferences": prefs, "updated_at": now_utc()}})
+    return prefs
+
+
+# ---------------------------------------------------------------------------
 # App wiring
 # ---------------------------------------------------------------------------
 app.include_router(api)
+app.include_router(customer_api)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -972,9 +1342,15 @@ app.add_middleware(
 async def startup():
     await db.admin_users.create_index("email", unique=True)
     await db.customers.create_index([("pub_id", 1), ("mobile_number", 1)], unique=True)
+    await db.customers.create_index(
+        [("pub_id", 1), ("email", 1)], unique=True,
+        partialFilterExpression={"email": {"$type": "string"}})
+    await db.customers.create_index([("pub_id", 1), ("auth_identifier", 1)])
     await db.ledger_transactions.create_index([("pub_id", 1), ("wallet_id", 1)])
-    from seed import seed_demo
+    await db.customer_action_tokens.create_index("token_hash")
+    from seed import seed_demo, seed_customer_auth
     await seed_demo(db)
+    await seed_customer_auth(db)
 
 
 @app.on_event("shutdown")

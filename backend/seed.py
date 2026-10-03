@@ -139,3 +139,46 @@ async def seed_demo(db):
         "description": "Demo data seeded for The Crown & Anchor",
         "before_state": None, "after_state": None, "created_at": _now(),
     })
+
+
+async def seed_customer_auth(db):
+    """Idempotent: ensure one registered demo customer exists in the OWNER's pub
+    (same pub _single_pub() resolves), for the mobile API."""
+    owner_email = os.environ.get("ADMIN_EMAIL", "nitinwidtech@gmail.com").lower()
+    owner = await db.admin_users.find_one({"email": owner_email, "role": "OWNER"})
+    if not owner:
+        return
+    pub_id = owner["pub_id"]
+    email = "james.demo@crownanchor.demo"
+    existing = await db.customers.find_one({"pub_id": pub_id, "email": email})
+    if existing and existing.get("is_registered"):
+        return
+    prefs = {"offers": True, "transactional": True, "email": True, "push": False}
+    auth = {
+        "password_hash": _hash("Customer2026!"),
+        "auth_identifier": email,
+        "email": email,
+        "is_registered": True,
+        "registered_at": _now(),
+        "notification_preferences": prefs,
+        "updated_at": _now(),
+    }
+    # Link to the seeded walk-in James Fletcher if present, else create fresh.
+    cust = await db.customers.find_one({"pub_id": pub_id, "mobile_number": "07700900001"})
+    if cust:
+        await db.customers.update_one({"_id": cust["_id"]}, {"$set": auth})
+        cid = str(cust["_id"])
+    else:
+        r = await db.customers.insert_one({
+            "pub_id": pub_id, "customer_code": f"C{uuid.uuid4().hex[:6].upper()}",
+            "full_name": "James Fletcher", "mobile_number": "07700900001",
+            "date_of_birth": None, "marketing_consent": True, "status": "active",
+            "created_at": _now(), **auth,
+        })
+        cid = str(r.inserted_id)
+    wallet = await db.wallets.find_one({"customer_id": cid})
+    if not wallet:
+        await db.wallets.insert_one({
+            "pub_id": pub_id, "customer_id": cid, "currency": "GBP",
+            "status": "active", "created_at": _now(), "updated_at": _now(),
+        })
