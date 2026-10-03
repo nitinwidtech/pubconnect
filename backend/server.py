@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Literal
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 import logging
 import bcrypt
 import jwt
@@ -1140,7 +1141,7 @@ async def customer_register(body: CustomerRegisterIn, request: Request):
         }
         try:
             res = await db.customers.insert_one(doc)
-        except Exception:
+        except DuplicateKeyError:
             raise HTTPException(status_code=409, detail="Unable to register with the provided details")
         cust_id = res.inserted_id
 
@@ -1341,7 +1342,14 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     await db.admin_users.create_index("email", unique=True)
-    await db.customers.create_index([("pub_id", 1), ("mobile_number", 1)], unique=True)
+    # Mobile unique per pub, but exclude null/absent so email-only signups don't collide.
+    try:
+        await db.customers.drop_index("pub_id_1_mobile_number_1")
+    except Exception:
+        pass
+    await db.customers.create_index(
+        [("pub_id", 1), ("mobile_number", 1)], unique=True,
+        partialFilterExpression={"mobile_number": {"$type": "string"}})
     await db.customers.create_index(
         [("pub_id", 1), ("email", 1)], unique=True,
         partialFilterExpression={"email": {"$type": "string"}})

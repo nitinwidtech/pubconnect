@@ -41,6 +41,17 @@ PubConnect Phase 1 (Hardened Approval Plan): a web-based, multi-tenant (pub_id) 
 - P2: date-range transaction filters UI, CSV export.
 - P2 (explicitly deferred per plan): mobile/customer app, SMS/push, gift vouchers, payment gateway/POS, advanced analytics, deployment.
 
+## Phase 2.0 — Customer Backend API (2026-06, backend only; Expo app deferred & awaiting approval)
+- New `/api/customer` router (register, login, me, profile, home, wallet, transactions, transactions/{id}, offers, action-tokens, notification-preferences).
+- Customer JWT `aud="customer"`, admin JWT `aud="admin"`; cross-audience use rejected (401) both ways.
+- Login via email OR mobile + password (bcrypt); generic errors (no account enumeration); in-memory rate limiting on login/register.
+- Self-scoped by customer_id + pub_id; IDOR-safe (foreign txn ids -> 404); cross-pub isolated; single pilot pub resolved via owner's pub.
+- Customer PAY QR token: opaque, 5-min, single-use, SHA-256 hash stored, generated_by="customer"; resolved by existing admin Fast Service. No PII in token.
+- DB: customers extended with nullable auth fields (password_hash, auth_identifier, is_registered, registered_at, notification_preferences, last_login_at); partial-unique indexes on (pub_id,email) and (pub_id,mobile_number); customer_action_tokens gains action_type PAY + generated_by. No second wallet; ledger logic reused unchanged.
+- Verified: 31/31 Phase 2 tests + 36/36 Phase 1 regression pass. Fixed mobile_number null-collision index bug.
+- NOT built (deferred): Expo mobile UI, SMS, push delivery, gift vouchers, payments, POS, staff mobile app, multi-pub membership.
+
 ## Next Tasks
-- Add QR action-token generation/resolve endpoints when a customer app is introduced.
-- Multi-pub tenant switcher once a second pub onboards.
+- On approval: build the Expo (React Native + TS) customer app against this API.
+- Production hardening: persistent/distributed rate limiting, OTP phone verification before claiming walk-in records, split server.py into modules.
+- Multi-pub membership model when a second pub onboards.
