@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "PubConnect",
+    "slug": "pubconnect-customer",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "pubconnect",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0D0B0A",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0D0B0A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.pubconnect.customer"
+    },
+    "android": {
+      "package": "com.pubconnect.customer",
+      "adaptiveIcon": {
+        "backgroundColor": "#0D0B0A",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}

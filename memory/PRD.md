@@ -55,3 +55,13 @@ PubConnect Phase 1 (Hardened Approval Plan): a web-based, multi-tenant (pub_id) 
 - On approval: build the Expo (React Native + TS) customer app against this API.
 - Production hardening: persistent/distributed rate limiting, OTP phone verification before claiming walk-in records, split server.py into modules.
 - Multi-pub membership model when a second pub onboards.
+
+## Phase 2 — Customer Mobile App (Expo + React Native + TypeScript) (2026-06)
+- Location: `/app/mobile` (separate project; admin web app untouched). Expo SDK 57 / RN 0.86.
+- Screens: Login, Register, Home, Wallet, Transactions, Transaction Detail/Confirmation, Pay at Pub (QR), Offers, Profile, Notification Preferences.
+- Thin client: no wallet math/financial logic on device; backend is the single source of truth. Connects only to `/api/customer/*`.
+- Auth: JWT aud="customer" in expo-secure-store; attached as Bearer; admin endpoints inaccessible.
+- Pay at Pub: generates existing opaque single-use ~5-min PAY token; QR holds only the token (no PII); visible countdown; expired handling; resolved by existing admin Fast Service.
+- Validation: TypeScript 0 errors; full metro bundle success (`expo export`, 1243 modules). Device interaction requires Expo Go (web-only testing agent cannot drive native RN). Backend APIs already covered by Phase 2.0 tests (31/31 + 36/36 regression).
+- Env limitation: Hermes bytecode step can't run in sandbox (hermesc binary); JS bundle builds fine; Hermes works on-device/app-store builds.
+- NOT built (scope): OTP/SMS, push delivery, gift vouchers, staff app, POS/payments, multi-pub membership, real events, loyalty, analytics.
