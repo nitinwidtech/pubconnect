@@ -1,0 +1,134 @@
+{
+  "project_title": "PubConnect Phase 1 - Hardened Approval Plan",
+  "app_type": "dashboard",
+  "context": "Multi-tenant SaaS Admin Dashboard for British Pub & Hospitality Staff (Owner, Manager, Bar Staff) to manage customer wallet deposits, promotional bonus value, redemptions, refunds, reversals, and audit ledger in GBP (£ pence integer).",
+  "theme_strategy": {
+    "default_mode": "dark",
+    "mode_toggle_supported": true,
+    "aesthetic_description": "Craft Hospitality & Financial Integrity. Deep Mahogany wood tones, warm brass amber accents, crisp high-density dark obsidian cardless surface layouts with gold highlight accents and monospace precision for GBP pence ledger integrity."
+  },
+  "typography": {
+    "font_family_heading": "Outfit, Cabinet Grotesk, sans-serif",
+    "font_family_body": "Inter, Work Sans, system-ui, sans-serif",
+    "font_family_mono": "JetBrains Mono, Source Code Pro, monospace",
+    "google_fonts_url": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&family=Outfit:wght@500;600;700;800&display=swap",
+    "rules": [
+      "Headings (H1-H4) MUST use Outfit font with tight tracking (`tracking-tight`).",
+      "Body text MUST use Inter with generous line-height (`leading-relaxed`).",
+      "All monetary values in GBP (£), transaction IDs, customer IDs, pence ledger balances, and audit hashes MUST use JetBrains Mono (`font-mono`).",
+      "Headings max sizes: H1 `text-3xl sm:text-4xl lg:text-5xl`, H2 `text-2xl sm:text-3xl`, H3 `text-xl sm:text-2xl`, H4 `text-lg`."
+    ]
+  },
+  "colors": {
+    "palette_archetype": "ORGANIC_LUXURY_BRASS",
+    "background_dark": "#0D0B0A",
+    "background_card_dark": "#161312",
+    "surface_border_dark": "#2A2421",
+    "primary_brass": "#E5A93C",
+    "primary_brass_hover": "#F5BA4F",
+    "primary_brass_muted": "rgba(229, 169, 60, 0.15)",
+    "accent_mahogany": "#8B3A2B",
+    "accent_emerald_positive": "#2E7D32",
+    "accent_crimson_negative": "#C62828",
+    "accent_amber_pending": "#D97706",
+    "text_primary_dark": "#F3EFEA",
+    "text_secondary_dark": "#A39B92",
+    "text_muted_dark": "#6E665E",
+    "rules": [
+      "Never use pure black #000000; use tinted dark oak #0D0B0A.",
+      "Primary CTA buttons must use Brass Amber (#E5A93C) with dark text (#0D0B0A) for high contrast and fast visibility behind the bar.",
+      "Monetary deposits & positive wallet adjustments use Emerald Green badge/text.",
+      "Redemptions & refunds use warm Amber/Crimson indicators with clear polarity (+ / -)."
+    ]
+  },
+  "key_screens": {
+    "login": {
+      "path": "/login",
+      "title": "PubConnect Staff Portal Login",
+      "description": "Multi-tenant authentication with Pub ID dropdown/entry, Staff PIN / Email & Password, and Role selection (Owner, Manager, Bar Staff)."
+    },
+    "dashboard": {
+      "path": "/",
+      "title": "Executive Pub Overview & Real-Time KPI Hub",
+      "description": "KPI metrics (Total Customers, Active Customers 30D, Total Wallet Deposits in £, Total Redemptions in £, Promotional Bonus Issued in £, Active Offers count). Includes live chart of daily deposit vs redemption volume in GBP pence and quick action trigger for Fast Bar Service."
+    },
+    "customers": {
+      "path": "/customers",
+      "title": "Customer Directory & Wallet Profile",
+      "description": "Searchable list with phone, name, wallet balance (£), promo balance (£), status, and action menu. Profile drawer/page showing total real deposits, promo bonus earned, real-time ledger timeline, deposit/refund modal, and activity lock."
+    },
+    "fast_service": {
+      "path": "/service-workflow",
+      "title": "Fast Deposit & Redemption Bar Counter Service",
+      "description": "Optimized rapid workflow for Bar Staff: 1. Customer Phone/ID Lookup, 2. Live Balance Preview (Real £ + Promo £), 3. Action Selection (Deposit / Redeem / Bonus), 4. Pence Amount Keypad/Input, 5. Double-Confirmation Step with PIN/Verification, 6. Instant Receipt/Success State with print/SMS simulation."
+    },
+    "transactions": {
+      "path": "/transactions",
+      "title": "Append-Only Transaction Ledger & Reversals",
+      "description": "Comprehensive list of all wallet transactions (DEPOSIT, REDEMPTION, PROMO_BONUS, REFUND, REVERSAL). Filter by type, date range, staff member, and customer. Detailed drawer showing linked original transaction ID, parent/child reversal details, and ledger hash integrity."
+    },
+    "staff": {
+      "path": "/staff",
+      "title": "Staff Management & Role Access Control",
+      "description": "List of pub staff, role assignment (Owner, Manager, Bar Staff), PIN generation/reset, status toggle (Active/Deactivated), and audit action count."
+    },
+    "offers": {
+      "path": "/offers",
+      "title": "Promotional Bonus & Offers Builder",
+      "description": "Create and manage deposit bonus rules (e.g. 'Deposit £50, Get £10 Free Promo Credit'). Configurable active/inactive status, date range window, min deposit threshold, max usage limit per customer, and total promo budget cap."
+    },
+    "audit_logs": {
+      "path": "/audit-logs",
+      "title": "Immutable Ledger Audit Logs & Compliance",
+      "description": "Security events and ledger immutability log viewer. Tracks staff actions, manual balance overrides, reversal requests, staff login attempts, and multi-tenant system events with timestamp, IP, staff ID, and cryptographic payload verification."
+    },
+    "pub_setup": {
+      "path": "/pub-setup",
+      "title": "Pub Tenant Configuration & Hospitality Branding",
+      "description": "Multi-tenant pub configuration (pub_id, pub name, address, currency settings fixed to GBP £, tax ID, receipt header text, operational limits, and primary brand color accent customization)."
+    }
+  },
+  "money_and_ledger_rules": {
+    "currency_symbol": "£",
+    "code": "GBP",
+    "storage_format": "integer_pence",
+    "example_conversion": "1250 pence = £12.50",
+    "display_rule": "Always format integer pence to 2 decimal places (£XX.XX) using standard utility helper `formatPenceToGBP(pence)`. Never show raw floating numbers.",
+    "ledger_type": "APPEND_ONLY",
+    "prohibition": "NO direct mutation of wallet balance column without an immutable transaction record."
+  },
+  "components_and_structure": {
+    "navigation": "Sidebar navigation layout with pub switcher header, active tenant badge, rapid service quick-action button, role badge, and user profile drawer.",
+    "top_bar": "Global search (customer phone/name), Fast Service trigger button (£ icon), active pub indicator (e.g., 'The Crown & Anchor - London'), and theme mode toggle.",
+    "tables": "Dense, high-clarity data tables with sticky headers, sortable columns, inline badge tags, and pagination.",
+    "modals_dialogs": "Double-confirmation modal for financial transactions with prominent sum total, staff PIN prompt, and reversal warnings.",
+    "ui_library": "shadcn/ui primitives heavily styled with dark wood and brass palette, Lucide/Phosphor icons, and Sonner toast notifications."
+  },
+  "image_urls": {
+    "pub_interiors": [
+      "https://images.unsplash.com/photo-1624583338957-4d155ca886dc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHw0fHxjb3p5JTIwYnJpdGlzaCUyMHB1YiUyMGludGVyaW9yJTIwY3JhZnQlMjBiZWVyfGVufDB8fHx8MTc5MTA1NDE2M3ww&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1709548145082-04d0cde481d4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwzfHxjb3p5JTIwYnJpdGlzaCUyMHB1YiUyMGludGVyaW9yJTIwY3JhZnQlMjBiZWVyfGVufDB8fHx8MTc5MTA1NDE2M3ww&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1538488881038-e252a119ace7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwyfHxjb3p5JTIwYnJpdGlzaCUyMHB1YiUyMGludGVyaW9yJTIwY3JhZnQlMjBiZWVyfGVufDB8fHx8MTc5MTA1NDE2M3ww&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1558210598-89ba75b1724e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwxfHxjb3p5JTIwYnJpdGlzaCUyMHB1YiUyMGludGVyaW9yJTIwY3JhZnQlMjBiZWVyfGVufDB8fHx8MTc5MTA1NDE2M3ww&ixlib=rb-4.1.0&q=85"
+    ],
+    "bar_taps_service": [
+      "https://images.unsplash.com/photo-1615332579037-3c44b3660b53?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NjZ8MHwxfHNlYXJjaHw0fHxiYXJ0ZW5kZXIlMjBwb3VyaW5nJTIwYmVlciUyMHBpbnQlMjBwdWJ8ZW58MHx8fHwxNzkxMDU0MTcwfDA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1546622891-02c72c1537b6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NjZ8MHwxfHNlYXJjaHwyfHxiYXJ0ZW5kZXIlMjBwb3VyaW5nJTIwYmVlciUyMHBpbnQlMjBwdWJ8ZW58MHx8fHwxNzkxMDU0MTcwfDA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1567696911980-2eed69a46042?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NjZ8MHwxfHNlYXJjaHwxfHxiYXJ0ZW5kZXIlMjBwb3VyaW5nJTIwYmVlciUyMHBpbnQlMjBwdWJ8ZW58MHx8fHwxNzkxMDU0MTcwfDA&ixlib=rb-4.1.0&q=85"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Ensure ALL interactive elements (buttons, inputs, select options, table rows, modal submit buttons, filters, role switches) have explicit `data-testid` attributes.",
+    "Implement mock state management with persistent LocalStorage fallback for seamless offline testing of deposits, redemptions, staff creation, offers editing, and audit logging.",
+    "Store all currency amounts as integer pence (e.g. 2500 for £25.00). Use standard utility functions for parsing user string input into pence and displaying pence as formatted GBP (£).",
+    "Support role switching or test role toggle (Owner, Manager, Bar Staff) in the top navbar so evaluators can test restricted view capabilities (e.g. Bar Staff cannot create offers or access audit logs).",
+    "Include a double-confirmation step modal in the Deposit / Redemption workflow with high visual clarity to prevent accidental over-charges or unauthorized manual balance credits.",
+    "In the Transactions screen, provide clear linkage between original deposit transactions and their subsequent partial or full refunds/reversals.",
+    "Add sample British pub tenants (e.g. 'The Crown & Anchor', 'The Red Lion Tavern', 'The Barrel & Tap') with quick tenant switching in the Pub Setup and Header."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": {
+    "design_quality": "Avoid plain grey software template slop. Blend dark mahogany leather tones, polished brass accents, and razor-sharp high-density tables with JetBrains Mono numbers.",
+    "testing_readiness": "Every button, input, tab, dropdown, table row, and modal action MUST include `data-testid` using kebab-case naming.",
+    "toast_notifications": "Use `sonner` toast notifications for all action feedback (e.g. Deposit successful, Refund reversed, Offer activated, Staff role changed)."
+  }
+}
