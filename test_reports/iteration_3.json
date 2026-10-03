@@ -1,0 +1,33 @@
+{
+  "summary": "Validated the NEW POST /api/customer/action-tokens/status endpoint (Used-Code Feedback) and the full Pay-at-Pub flow at the API level, plus full Phase 1 + Phase 2 regression. 10/10 new tests pass; 67/67 existing tests pass (77 total). The status endpoint is correctly self-scoped by customer_id + pub_id (IDOR-safe), returns active before resolve, flips to used with a used_at timestamp after admin /action-tokens/resolve, never flips back, enforces single-use (second resolve -> 400 'already used'), returns 404 for unknown tokens, and rejects admin JWTs (401). Server-authoritative balance verified: deposit 2000 then redeem 500 produces wallet.total_minor = before - 500 via GET /customer/wallet. expires_at is ~5 minutes ahead of now (verified 4m < delta < 6m).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase2_action_token_status.py",
+    "/app/backend/tests/test_phase2_customer.py",
+    "/app/backend/tests/test_pubconnect.py",
+    "/app/test_reports/pytest/phase2_status_results.xml",
+    "/app/test_reports/pytest/regression_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~1390 lines; consider splitting (customer_api, admin_api, ledger, helpers) for maintainability per 700-line guideline.",
+    "customer_token_status compares now_utc() (ISO string) with tok['expires_at'] (ISO string) - works for canonical UTC isoformat with same offset only. Safe here because both are produced by datetime.now(timezone.utc).isoformat(), but future refactors should use datetime objects to avoid subtle lex-order bugs if tz offset formatting ever varies.",
+    "Cross-pub isolation on /customer/action-tokens/status is enforced via the (customer_id, pub_id) match, but a true multi-pub test could not be exercised with the single seeded pub. The query shape is correct by inspection.",
+    "Register endpoint has a documented unique-index issue on (pub_id, mobile_number) with no partial filter for null mobiles - already captured in iteration_2; not re-tested here."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (77/77)", "frontend": "n/a (skipped per request)"},
+  "test_credentials": "ADMIN: nitinwidtech@gmail.com / PubConnect2026!; CUSTOMER: james.demo@crownanchor.demo / Customer2026! (also 07700900001)",
+  "seed_data_creation": "Dynamic TEST_ customers registered per test run; test deposits/redeems against seeded customer. No persistent mutations beyond ledger entries (which are append-only by design).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "New endpoint POST /api/customer/action-tokens/status (self-scoped, returns {status, used_at, expires_at, action_type}) is fully covered in /app/backend/tests/test_phase2_action_token_status.py. Full admin+customer regression lives in test_pubconnect.py (Phase 1) and test_phase2_customer.py (Phase 2.0). All 77 tests pass. Register endpoint is rate-limited (~8/min per host) - space out registrations or expect 429 (handled in helper with backoff). Expired-token path was asserted structurally (expires_at ~5 min ahead + used-never-flips-back) rather than by waiting 5 minutes."
+}

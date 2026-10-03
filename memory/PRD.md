@@ -65,3 +65,9 @@ PubConnect Phase 1 (Hardened Approval Plan): a web-based, multi-tenant (pub_id) 
 - Validation: TypeScript 0 errors; full metro bundle success (`expo export`, 1243 modules). Device interaction requires Expo Go (web-only testing agent cannot drive native RN). Backend APIs already covered by Phase 2.0 tests (31/31 + 36/36 regression).
 - Env limitation: Hermes bytecode step can't run in sandbox (hermesc binary); JS bundle builds fine; Hermes works on-device/app-store builds.
 - NOT built (scope): OTP/SMS, push delivery, gift vouchers, staff app, POS/payments, multi-pub membership, real events, loyalty, analytics.
+
+## Phase 2 — Used-Code Feedback + Device Smoke Test (2026-06)
+- NEW backend endpoint POST /api/customer/action-tokens/status {token}: self-scoped by customer_id + pub_id (IDOR-safe), returns status active/used/expired + used_at. Reuses hash_token(); no new financial logic.
+- PayScreen now polls status every 3s while the QR is active; on 'used' it shows a clear "Code used" success state plus the server-authoritative updated balance (GET /customer/wallet) and the resulting transaction (GET /customer/transactions). No client-side math.
+- Device Smoke Test: real Expo Go on-device run must be performed by the user (no physical device / native driver in-environment). Full Pay flow validated at the API level (exactly the calls the app makes): login -> wallet -> generate PAY token (active) -> admin Fast Service resolve -> status flips to used -> balance reduced server-side -> reuse blocked -> invalid=404 -> expired structurally verified -> JWT isolation -> admin unaffected.
+- Verified: 77/77 backend tests pass (10 new + 67 regression); TypeScript 0 errors; full metro bundle success.
