@@ -6,6 +6,22 @@ import {
   ScrollText, Store, LogOut, Beer,
 } from "lucide-react";
 
+// Extract a short town/city from a full address line (e.g. "14 Fleet Street, London EC4Y 1AA" -> "London").
+function deriveLocality(address) {
+  if (!address) return "";
+  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return "";
+  const last = parts[parts.length - 1];
+  // If the last segment looks like a "Town POSTCODE" (UK style), take the town portion.
+  const townFromLast = last.replace(/\s+[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}.*$/i, "").trim();
+  if (parts.length >= 2) {
+    const candidate = parts[parts.length - 2];
+    const candTown = candidate.replace(/\s+[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}.*$/i, "").trim();
+    return townFromLast || candTown || candidate || address;
+  }
+  return townFromLast || last || address;
+}
+
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard", end: true },
   { to: "/service", label: "Fast Service", icon: Zap, perm: "deposit" },
@@ -76,8 +92,14 @@ export function Layout({ children }) {
       <div className="flex-1 md:ml-64 min-w-0">
         <header className="h-16 border-b border-border bg-background/80 backdrop-blur-xl sticky top-0 z-10 flex items-center justify-between px-5 md:px-8">
           <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground hidden sm:inline">The Crown &amp; Anchor · London</span>
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald hidden sm:inline-block" />
+            {pub?.name && (
+              <>
+                <span data-testid="header-pub-name" className="text-sm text-muted-foreground hidden sm:inline">
+                  {pub.name}{deriveLocality(pub.address) ? ` · ${deriveLocality(pub.address)}` : ""}
+                </span>
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald hidden sm:inline-block" />
+              </>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <button
