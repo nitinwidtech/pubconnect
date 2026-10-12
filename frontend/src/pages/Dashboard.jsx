@@ -10,7 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, pub } = useAuth();
 
   useEffect(() => {
     api.get("/dashboard").then((r) => setData(r.data)).catch(() => {});
@@ -22,7 +22,7 @@ export default function Dashboard() {
     <div>
       <PageHeader
         title={`Good day, ${user?.full_name?.split(" ")[0] || "there"}`}
-        subtitle="Real-time wallet overview for The Crown & Anchor"
+        subtitle={`Real-time wallet overview for ${pub?.name?.trim() || "your pub"}`}
         action={
           <button
             data-testid="dashboard-fast-service-btn"
