@@ -95,7 +95,7 @@ export function Layout({ children }) {
             {pub?.name && (
               <>
                 <span data-testid="header-pub-name" className="text-sm text-muted-foreground hidden sm:inline">
-                  {pub.name}{deriveLocality(pub.address) ? ` · ${deriveLocality(pub.address)}` : ""}
+                  {pub.name.trim()}{deriveLocality(pub.address) ? ` · ${deriveLocality(pub.address)}` : ""}
                 </span>
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald hidden sm:inline-block" />
               </>

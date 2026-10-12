@@ -1,0 +1,28 @@
+{
+  "summary": "Frontend-only verification of Admin Dashboard header fix. Logged in as OWNER (nitinwidtech@gmail.com) and verified the header [data-testid=\"header-pub-name\"] dynamically renders 'The George & Dragon · Norwich' (derived from pub.name + locality parsed from pub.address 'The St, Thurton, Norwich NR14 6AL'). Old hard-coded 'The Crown & Anchor · London' is gone. Header stays consistent while navigating Dashboard, Customers, Transactions, Pub Setup. Sidebar 'Active Pub' label also shows 'The George & Dragon'. Pub Setup form shows matching name/address. No regressions observed in nav or metrics load.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard page body", "issues": ["Subtitle still hard-codes 'Real-time wallet overview for The Crown & Anchor' - not part of this fix's header scope, but same hard-coded tenant string pattern exists in the Dashboard subtitle and should be made dynamic too."]},
+      {"screen": "Header", "issues": ["Minor cosmetic: a double space appears between pub name and the ' · ' separator ('The George & Dragon  · Norwich'). Likely from `{pub.name}{ ' · ' + deriveLocality(...) }` with trailing whitespace or an extra space in the template literal."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix double-space in header template between pub.name and ' · ' separator (cosmetic).",
+    "Optional: Replace hard-coded 'The Crown & Anchor' in Dashboard subtitle with pub.name for consistency with the header fix."
+  ],
+  "critical_code_review_comments": [
+    "deriveLocality is inlined in Layout.jsx; consider extracting into a shared util for reuse across components (Dashboard subtitle also needs tenant-dynamic text).",
+    "Double-space rendering in header suggests the join template includes an extra space; prefer `${pub.name} \u00b7 ${deriveLocality(pub.address)}` to avoid spacing bugs."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100% for header fix scope"},
+  "test_credentials": "OWNER nitinwidtech@gmail.com / PubConnect2026! (worked)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Header fix verified end-to-end via UI login. Dashboard page body still has a hard-coded 'The Crown & Anchor' subtitle (outside header scope). Also minor double-space between pub name and separator in header text."
+}
