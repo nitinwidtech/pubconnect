@@ -1,0 +1,19 @@
+{
+  "summary": "Verified Dashboard subtitle fix for PubConnect admin. Logged in as OWNER (nitinwidtech@gmail.com). Dashboard subtitle now dynamically reads 'Real-time wallet overview for The George & Dragon' matching the authenticated tenant's pub.name. No trace of the previous hard-coded 'The Crown & Anchor'. Header (data-testid=header-pub-name) shows 'The George & Dragon · Norwich' and sidebar Active Pub shows 'The George & Dragon' - all consistent with /auth/me pub.name. KPIs (Total Customers 36, Active Customers 36, Active Offers 7, Wallet Deposits £736.22, Redemptions £267.00, Promo Issued £170.00) all load. Recent Transactions renders. Navigation between Dashboard, Customers, Transactions works and header remains correct across routes.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100%"},
+  "test_credentials": "ADMIN OWNER: nitinwidtech@gmail.com / PubConnect2026!",
+  "seed_data_creation": "",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Dashboard subtitle fix verified. Dashboard.jsx reads `pub` from useAuth() and renders `Real-time wallet overview for ${pub?.name?.trim() || 'your pub'}`. Confirmed consistent with header-pub-name testid and sidebar Active Pub."
+}
